@@ -8,7 +8,7 @@ import * as THREE from "three";
 // ==========================================
 
 // ★ここにスプレッドシートの「CSV公開URL」を貼り付けてください！
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/xxxxx...../pub?output=csv";
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJ5qTo4Ee4Z7pfMgrnT1E0Y78tV4uOIL5iTY350b8bAMfB_Km3tZEClo9jt7d-LaqSSQwREGrA8ZVC/pub?output=csv";
 
 // 学年ごとのカラー設定
 const getGradeColor = (grade) => {
