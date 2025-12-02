@@ -8,17 +8,20 @@ import * as THREE from "three";
 // ==========================================
 
 // ★ここにスプレッドシートの「CSV公開URL」を貼り付けてください！
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJ5qTo4Ee4Z7pfMgrnT1E0Y78tV4uOIL5iTY350b8bAMfB_Km3tZEClo9jt7d-LaqSSQwREGrA8ZVC/pub?output=csv";
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/xxxxx...../pub?output=csv";
 
-// 学年ごとのカラー設定 (高専対応 1-5年)
+// 学年ごとのカラー設定 (要望対応版)
+// 1年:赤, 2年:青, 3年:黄 (基本サイクル)
+// 4年(1年の合同):ピンク, 5年(2年の合同):水色
 const getGradeColor = (grade) => {
   const g = parseInt(grade);
   switch (g) {
-    case 1: return "#2196f3"; // 1年: 青
-    case 2: return "#ffc107"; // 2年: 黄
-    case 3: return "#f44336"; // 3年: 赤
-    case 4: return "#4caf50"; // 4年: 緑 (New!)
-    case 5: return "#9c27b0"; // 5年: 紫 (New!)
+    case 1: return "#f44336"; // 1年: 赤
+    case 2: return "#2196f3"; // 2年: 青
+    case 3: return "#ffc107"; // 3年: 黄
+    case 4: return "#e91e63"; // 4年: ピンク (赤の変種)
+    case 5: return "#03a9f4"; // 5年: 水色 (青の変種)
+    case 6: return "#ff9800"; // 6年(専攻科?): オレンジ (黄の変種)
     default: return "#9e9e9e"; // その他: グレー
   }
 };
@@ -31,42 +34,51 @@ const THEME = {
   bg: "#1d1d1d", panelBg: "#303030", headerBg: "#2b2b2b", text: "#cccccc", gridLine: "#3a3a3a",
 };
 
-// デフォルト配置（シート読み込み失敗時や初回用）
-const DEFAULT_POSITIONS = [
-  // スタメン
-  { x: 10, y: 50 }, 
-  { x: 30, y: 20 }, { x: 30, y: 80 }, { x: 30, y: 35 }, { x: 30, y: 65 }, 
-  { x: 50, y: 50 }, { x: 50, y: 30 }, { x: 50, y: 70 }, 
-  { x: 70, y: 40 }, { x: 70, y: 60 }, { x: 80, y: 50 }, 
-  // ベンチ
-  { x: 105, y: 10 }, { x: 105, y: 25 }, { x: 105, y: 40 }, { x: 105, y: 55 },
-  { x: 105, y: 70 }, { x: 105, y: 85 }
+// スタメンのデフォルト配置 (1-11人目)
+const STARTER_POSITIONS = [
+  { x: 10, y: 50 }, // GK
+  { x: 30, y: 20 }, { x: 30, y: 80 }, { x: 30, y: 35 }, { x: 30, y: 65 }, // DF
+  { x: 50, y: 50 }, { x: 50, y: 30 }, { x: 50, y: 70 }, // MF
+  { x: 70, y: 40 }, { x: 70, y: 60 }, { x: 80, y: 50 }  // FW
 ];
 
-// CSV解析
+// CSV解析 & 自動配置ロジック
 const parseCSV = (text) => {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l);
   const dataLines = lines.slice(1); // ヘッダー除去
   
-  return dataLines.map((line, index) => {
+  // まず全員のデータをオブジェクト化
+  const allPlayers = dataLines.map((line, index) => {
     const cols = line.split(",");
-    let posX = 105; 
-    let posY = 10 + (index - 11) * 15; 
-
-    if (index < 11) {
-      posX = DEFAULT_POSITIONS[index]?.x || 50;
-      posY = DEFAULT_POSITIONS[index]?.y || 50;
-    }
-
     return {
       id: index,
       name: cols[0] || "未登録",
-      number: cols[1] || "?",
+      // 背番号(cols[1])は読み捨てるか、内部データとしてだけ保持
       grade: cols[2] || 1,
       role: cols[3] || "PLY",
-      x: posX,
-      y: posY
+      x: 0, y: 0 // 後で計算
     };
+  });
+
+  // スタメンとベンチの境界
+  const BENCH_START_INDEX = 11;
+  const benchCount = Math.max(0, allPlayers.length - BENCH_START_INDEX);
+
+  return allPlayers.map((p, i) => {
+    if (i < BENCH_START_INDEX) {
+      // --- スタメン配置 ---
+      p.x = STARTER_POSITIONS[i]?.x || 50;
+      p.y = STARTER_POSITIONS[i]?.y || 50;
+    } else {
+      // --- ベンチ配置 (均等割り) ---
+      // ベンチエリア(Y:0-100)を人数+1等分して配置
+      const benchIndex = i - BENCH_START_INDEX;
+      const split = 100 / (benchCount + 1);
+      
+      p.x = 112; // ベンチエリアの横中心あたり
+      p.y = split * (benchIndex + 1);
+    }
+    return p;
   });
 };
 
@@ -78,18 +90,19 @@ const Player3D = ({ position, scale = 1 }) => {
 
   return (
     <group position={[x3d, 0, z3d]}>
+      {/* 台座 */}
       <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[1.5 * scale, 1.5 * scale, 0.5, 32]} />
         <meshStandardMaterial color={color} roughness={0.5} />
       </mesh>
+      {/* 本体 */}
       <mesh position={[0, 1.5, 0]} castShadow>
         <cylinderGeometry args={[0.5 * scale, 0.5 * scale, 3, 16]} />
         <meshStandardMaterial color={color} roughness={0.5} />
       </mesh>
-      <Text position={[0, 4, 0]} fontSize={1.5} color="white" anchorX="center" anchorY="middle" outlineWidth={0.1} outlineColor="#000000">
-        {position.number}
-      </Text>
-      <Text position={[0, 5.5, 0]} fontSize={1.2} color="white" anchorX="center" anchorY="middle" outlineWidth={0.05} outlineColor="#000000">
+      
+      {/* 背番号削除 → 名前のみ表示 */}
+      <Text position={[0, 4.5, 0]} fontSize={1.5} color="white" anchorX="center" anchorY="middle" outlineWidth={0.1} outlineColor="#000000">
         {position.name}
       </Text>
     </group>
@@ -128,10 +141,7 @@ const Scene3D = ({ players }) => {
         </mesh>
         
         <FieldLines3D />
-        
         {players.map((p) => ( <Player3D key={p.id} position={p} /> ))}
-        
-        {/* カメラ操作 (makeDefaultをつけることで操作の競合を防ぎます) */}
         <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
       </Canvas>
     </div>
@@ -146,7 +156,7 @@ const Board2D = ({ players, setPlayers }) => {
   const handleMouseMove = (e) => {
     if (!draggingId || !boardRef.current) return;
     const rect = boardRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 120; // ベンチエリア分考慮
+    const x = ((e.clientX - rect.left) / rect.width) * 120;
     const y = ((e.clientY - rect.top) / rect.height) * 100;
     setPlayers((prev) => prev.map((p) => (p.id === draggingId ? { ...p, x: x, y: y } : p)));
   };
@@ -170,8 +180,8 @@ const Board2D = ({ players, setPlayers }) => {
               background: getGradeColor(p.grade), transform: "translate(-50%, -50%)", cursor: "grab", border: "2px solid #fff",
               boxShadow: "0 2px 4px rgba(0,0,0,0.5)", zIndex: 10, display: "flex", flexDirection:"column", justifyContent: "center", alignItems: "center", color: "white", userSelect: "none"
             }}>
-            <span style={{ fontSize: "10px", fontWeight: "bold" }}>{p.number}</span>
-            <span style={{ fontSize: "8px", position:"absolute", bottom:"-15px", width:"40px", textAlign:"center", textShadow:"0 1px 2px black", pointerEvents: "none" }}>{p.name}</span>
+            {/* 背番号削除 → 代わりに名前を表示 */}
+            <span style={{ fontSize: "9px", fontWeight: "bold", textShadow:"0 1px 2px black", width:"40px", textAlign:"center", whiteSpace:"nowrap" }}>{p.name}</span>
           </div>
         ))}
       </div>
@@ -179,17 +189,14 @@ const Board2D = ({ players, setPlayers }) => {
   );
 };
 
-// --- メインアプリ (リサイズ機能付き) ---
+// --- メインアプリ ---
 export default function App() {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // 画面分割の比率 (左側の幅%)
   const [leftWidth, setLeftWidth] = useState(50);
   const containerRef = useRef(null);
   const isResizing = useRef(false);
 
-  // シート読み込み
   useEffect(() => {
     fetch(SHEET_URL)
       .then(response => response.text())
@@ -204,16 +211,12 @@ export default function App() {
       });
   }, []);
 
-  // リサイズ処理
   const startResizing = useCallback(() => { isResizing.current = true; }, []);
   const stopResizing = useCallback(() => { isResizing.current = false; }, []);
   const resize = useCallback((e) => {
     if (isResizing.current && containerRef.current) {
       const newWidth = (e.clientX / containerRef.current.clientWidth) * 100;
-      // 10%〜90%の範囲に制限
-      if (newWidth > 10 && newWidth < 90) {
-        setLeftWidth(newWidth);
-      }
+      if (newWidth > 10 && newWidth < 90) setLeftWidth(newWidth);
     }
   }, []);
 
@@ -229,31 +232,20 @@ export default function App() {
   return (
     <div ref={containerRef} style={{...styles.container}}>
       <header style={styles.header}>
-        <span style={{ fontWeight:'bold', marginRight:20 }}>⚽ Tactics 3D (KOSEN Ver.)</span>
+        <span style={{ fontWeight:'bold', marginRight:20 }}>⚽ Tactics 3D</span>
         <span style={{ fontSize: "10px", color:"#888" }}>
-          {loading ? "Loading..." : "Color: 1年(青) 2年(黄) 3年(赤) 4年(緑) 5年(紫)"}
+          {loading ? "Loading..." : "1年(赤) 2年(青) 3年(黄) 4年(桃) 5年(水)"}
         </span>
       </header>
       
       <div style={styles.main}>
-        {/* 左パネル (2D) */}
         <div style={{ ...styles.panel, width: `${leftWidth}%`, flex: "none" }}>
           <div style={styles.panelHeader}>Tactical Board (2D)</div>
           <Board2D players={players} setPlayers={setPlayers} />
         </div>
-
-        {/* リサイズ用ハンドル (ドラッグする棒) */}
-        <div 
-          onMouseDown={startResizing}
-          style={{
-            width: "5px", background: "#111", cursor: "col-resize", zIndex: 100,
-            borderLeft: "1px solid #444", borderRight: "1px solid #444"
-          }}
-        />
-
-        {/* 右パネル (3D) */}
+        <div onMouseDown={startResizing} style={{ width: "5px", background: "#111", cursor: "col-resize", zIndex: 100, borderLeft: "1px solid #444", borderRight: "1px solid #444" }} />
         <div style={{ ...styles.panel, flex: 1 }}>
-          <div style={styles.panelHeader}>3D Simulation (右ドラッグで移動 / ホイールで拡大)</div>
+          <div style={styles.panelHeader}>3D Simulation</div>
           <Scene3D players={players} />
         </div>
       </div>
