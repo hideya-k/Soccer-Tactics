@@ -3,6 +3,7 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Text, Line } from "@react-three/drei";
 import * as THREE from "three";
 
+// --- デザイン設定 ---
 const THEME = {
   bg: "#1d1d1d",
   panelBg: "#303030",
@@ -62,15 +63,20 @@ const styles = {
   },
 };
 
+// --- データ ---
 const createTeam = (team, color, startId, side) => {
   const players = [];
+  // GK
   players.push({ id: startId, number: 1, team, x: side === 'left' ? 5 : 95, y: 50, color, role: 'GK' });
+  // DF
   for (let i = 0; i < 4; i++) {
     players.push({ id: startId + 1 + i, number: 2 + i, team, x: side === 'left' ? 20 : 80, y: 20 + i * 20, color, role: 'DF' });
   }
+  // MF
   for (let i = 0; i < 4; i++) {
     players.push({ id: startId + 5 + i, number: 6 + i, team, x: side === 'left' ? 45 : 55, y: 20 + i * 20, color, role: 'MF' });
   }
+  // FW
   for (let i = 0; i < 2; i++) {
     players.push({ id: startId + 9 + i, number: 10 + i, team, x: side === 'left' ? 60 : 40, y: 35 + i * 30, color, role: 'FW' });
   }
@@ -83,6 +89,7 @@ const INITIAL_PLAYERS = [
   { id: 99, number: null, team: "ball", x: 50, y: 50, color: "#ffffff", scale: 0.5 }
 ];
 
+// --- 3Dパーツ ---
 const Player3D = ({ position, color, number, scale = 1 }) => {
   const x3d = (position.x - 50); 
   const z3d = (position.y - 50) * 0.7;
@@ -145,6 +152,7 @@ const Scene3D = ({ players }) => {
   );
 };
 
+// --- 2Dパーツ ---
 const Board2D = ({ players, setPlayers }) => {
   const boardRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
@@ -174,6 +182,7 @@ const Board2D = ({ players, setPlayers }) => {
   );
 };
 
+// --- メイン ---
 export default function App() {
   const [players, setPlayers] = useState(INITIAL_PLAYERS);
   return (
