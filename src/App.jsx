@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Text, Line, Sphere, Cylinder } from "@react-three/drei";
+import { OrbitControls, Text, Line, Sphere } from "@react-three/drei";
 import * as THREE from "three";
 
 // ==========================================
@@ -10,9 +10,9 @@ import * as THREE from "three";
 // ★スプレッドシートURL (CSV)
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJ5qTo4Ee4Z7pfMgrnT1E0Y78tV4uOIL5iTY350b8bAMfB_Km3tZEClo9jt7d-LaqSSQwREGrA8ZVC/pub?output=csv";
 
-// カラー設定 (学年 + ボール)
+// カラー設定
 const getGradeColor = (grade) => {
-  if (grade === "ball") return "#ffffff"; // ボールは白
+  if (grade === "ball") return "#ffffff";
   const g = parseInt(grade);
   switch (g) {
     case 1: return "#f44336"; // 1年: 赤
@@ -20,7 +20,7 @@ const getGradeColor = (grade) => {
     case 3: return "#ffc107"; // 3年: 黄
     case 4: return "#e91e63"; // 4年: ピンク
     case 5: return "#03a9f4"; // 5年: 水色
-    default: return "#9e9e9e"; // その他
+    default: return "#9e9e9e";
   }
 };
 
@@ -40,7 +40,7 @@ const STARTER_POSITIONS = [
   { x: 70, y: 40 }, { x: 70, y: 60 }, { x: 80, y: 50 }  // FW
 ];
 
-// CSV解析 & 配置ロジック
+// CSV解析
 const parseCSV = (text) => {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l);
   const dataLines = lines.slice(1);
@@ -48,7 +48,7 @@ const parseCSV = (text) => {
   const players = dataLines.map((line, index) => {
     const cols = line.split(",");
     return {
-      id: index, // 数値ID (0始まり)
+      id: index,
       name: cols[0] || "未登録",
       grade: cols[2] || 1,
       x: 0, y: 0
@@ -60,68 +60,68 @@ const parseCSV = (text) => {
   // 配置計算
   players.forEach((p, i) => {
     if (i < BENCH_START_INDEX) {
-      // スタメン配置
+      // スタメン
       p.x = STARTER_POSITIONS[i]?.x || 50;
       p.y = STARTER_POSITIONS[i]?.y || 50;
     } else {
-      // ベンチ配置 (4列グリッド)
+      // ベンチ (4列グリッド配置)
+      // ピッチの右側(x=100)よりさらに右(x=105〜)に配置
       const benchIndex = i - BENCH_START_INDEX;
       const col = benchIndex % 4;
       const row = Math.floor(benchIndex / 4);
-      
-      p.x = 105 + col * 7; // 横間隔
-      p.y = 15 + row * 15;  // 縦間隔
+      p.x = 105 + col * 6; // 横間隔
+      p.y = 15 + row * 12; // 縦間隔
     }
   });
 
-  // ボールを追加
-  players.push({
-    id: "ball", name: "", grade: "ball", x: 50, y: 50
-  });
+  // ボール追加
+  players.push({ id: "ball", name: "", grade: "ball", x: 50, y: 50 });
 
   return players;
 };
 
-// --- 3Dパーツ: ゴール ---
-const Goal3D = ({ position, rotation }) => {
-  const material = new THREE.MeshStandardMaterial({ color: "white", roughness: 0.5 });
-  const postRadius = 0.3;
+// --- 3Dパーツ: シンプルなゴール枠 (Line) ---
+const GoalFrame3D = ({ position, rotation }) => {
+  // ゴールの形状データ (幅7.32m, 高さ2.44mをイメージ)
+  // Three.jsのLineは一筆書き
+  const w = 7; // 幅
+  const h = 2.4; // 高さ
+  const d = 2; // 奥行き
+  
+  const points = [
+    [w, 0, 0], [w, h, 0], [-w, h, 0], [-w, 0, 0], // 前枠
+    [-w, h, 0], [-w, 0, -d], [w, 0, -d], [w, h, 0] // 後ろへの支え
+  ];
+
   return (
     <group position={position} rotation={rotation}>
-      {/* ポストとバー */}
-      <mesh position={[0, 4, -7]} material={material}><cylinderGeometry args={[postRadius, postRadius, 14]} /></mesh> // 上
-      <mesh position={[-7, 2, 0]} material={material}><cylinderGeometry args={[postRadius, postRadius, 4]} /></mesh> // 左
-      <mesh position={[7, 2, 0]} material={material}><cylinderGeometry args={[postRadius, postRadius, 4]} /></mesh> // 右
-      {/* 後ろの支え (簡易) */}
-      <mesh position={[-7, 2, -3]} rotation={[Math.PI/4,0,0]} material={material}><cylinderGeometry args={[postRadius/2, postRadius/2, 5]} /></mesh>
-      <mesh position={[7, 2, -3]} rotation={[Math.PI/4,0,0]} material={material}><cylinderGeometry args={[postRadius/2, postRadius/2, 5]} /></mesh>
+      <Line points={points} color="white" lineWidth={2} />
     </group>
   );
 };
 
 // --- 3Dパーツ: プレイヤー/ボール ---
-const Object3D = ({ data, scale = 1 }) => {
+const Object3D = ({ data }) => {
+  // 座標変換: 2D(0-100) -> 3D(-50~50)
   const x3d = (data.x - 50); 
-  const z3d = (data.y - 50) * 0.7;
+  const z3d = (data.y - 50) * 0.7; // 縦横比補正
   const color = getGradeColor(data.grade);
   const isBall = data.grade === "ball";
 
   return (
-    <group position={[x3d, isBall ? 0.75 : 0, z3d]}>
+    <group position={[x3d, isBall ? 0.4 : 0, z3d]}>
       {isBall ? (
-        // ボール
-        <Sphere args={[0.75 * scale, 32, 32]} castShadow>
-          <meshStandardMaterial color="white" roughness={0.4} metalness={0.1} />
+        <Sphere args={[0.4, 32, 32]} castShadow>
+          <meshStandardMaterial color="white" roughness={0.4} />
         </Sphere>
       ) : (
-        // プレイヤーコマ
         <>
           <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
-            <cylinderGeometry args={[1.5 * scale, 1.5 * scale, 0.5, 32]} />
+            <cylinderGeometry args={[1.5, 1.5, 0.5, 32]} />
             <meshStandardMaterial color={color} roughness={0.5} />
           </mesh>
           <mesh position={[0, 1.5, 0]} castShadow>
-            <cylinderGeometry args={[0.5 * scale, 0.5 * scale, 3, 16]} />
+            <cylinderGeometry args={[0.5, 0.5, 3, 16]} />
             <meshStandardMaterial color={color} roughness={0.5} />
           </mesh>
           <Text position={[0, 4.5, 0]} fontSize={1.5} color="white" anchorX="center" anchorY="middle" outlineWidth={0.1} outlineColor="#000000">
@@ -135,12 +135,16 @@ const Object3D = ({ data, scale = 1 }) => {
 
 // --- 3Dシーン ---
 const Scene3D = ({ players }) => {
-  // フィールドライン定義
+  // ライン定義
   const lineProps = { color: "white", lineWidth: 1, opacity: 0.6, transparent: true };
   const fieldPoints = [[-50, 0.05, -35], [50, 0.05, -35], [50, 0.05, 35], [-50, 0.05, 35], [-50, 0.05, -35]];
   const centerLine = [[0, 0.05, -35], [0, 0.05, 35]];
-  const goalAreaLeft = [[-50, 0.05, -10], [-44, 0.05, -10], [-44, 0.05, 10], [-50, 0.05, 10]];
-  const goalAreaRight = [[50, 0.05, -10], [44, 0.05, -10], [44, 0.05, 10], [50, 0.05, 10]];
+  // ペナルティエリア (少し大きめ)
+  const penAreaLeft = [[-50, 0.05, -14], [-36, 0.05, -14], [-36, 0.05, 14], [-50, 0.05, 14]];
+  const penAreaRight = [[50, 0.05, -14], [36, 0.05, -14], [36, 0.05, 14], [50, 0.05, 14]];
+  // ゴールエリア (小さめ)
+  const goalAreaLeft = [[-50, 0.05, -6], [-45, 0.05, -6], [-45, 0.05, 6], [-50, 0.05, 6]];
+  const goalAreaRight = [[50, 0.05, -6], [45, 0.05, -6], [45, 0.05, 6], [50, 0.05, 6]];
 
   return (
     <div style={{ width: "100%", height: "100%" }}>
@@ -151,28 +155,28 @@ const Scene3D = ({ players }) => {
         
         {/* 芝生 */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}>
-          <planeGeometry args={[120, 90]} />
+          <planeGeometry args={[130, 100]} />
           <meshStandardMaterial color="#2e8b57" roughness={0.9} />
         </mesh>
         
-        {/* ライン */}
+        {/* ライン描画 */}
         <group position={[0, 0.06, 0]}>
           <Line points={fieldPoints} {...lineProps} />
           <Line points={centerLine} {...lineProps} />
+          <Line points={penAreaLeft} {...lineProps} />
+          <Line points={penAreaRight} {...lineProps} />
           <Line points={goalAreaLeft} {...lineProps} />
           <Line points={goalAreaRight} {...lineProps} />
-          {/* センターサークル */}
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
             <ringGeometry args={[9, 9.3, 64]} />
             <meshBasicMaterial color="white" opacity={0.6} transparent side={THREE.DoubleSide} />
           </mesh>
         </group>
 
-        {/* ゴール */}
-        <Goal3D position={[-50, 0, 0]} rotation={[0, Math.PI / 2, 0]} />
-        <Goal3D position={[50, 0, 0]} rotation={[0, -Math.PI / 2, 0]} />
+        {/* ゴール枠 */}
+        <GoalFrame3D position={[-50, 0, 0]} rotation={[0, Math.PI / 2, 0]} />
+        <GoalFrame3D position={[50, 0, 0]} rotation={[0, -Math.PI / 2, 0]} />
 
-        {/* プレイヤー&ボール */}
         {players.map((p) => ( <Object3D key={p.id} data={p} /> ))}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} minPolarAngle={0} maxPolarAngle={Math.PI/2.2} />
       </Canvas>
@@ -185,13 +189,22 @@ const Board2D = ({ players, setPlayers }) => {
   const boardRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
 
-  // ドラッグ処理 (【重要】draggingId === null で判定するよう修正)
   const handleMouseMove = (e) => {
+    // IDが0の場合(falsy)も動くように厳密等価演算子を使う
     if (draggingId === null || !boardRef.current) return;
+    
+    // 【修正点】ピッチ(boardRef)の左上を基準に計算
     const rect = boardRef.current.getBoundingClientRect();
-    // マウス位置を相対座標(%)に変換
-    const x = ((e.clientX - rect.left) / rect.width) * 135; // ベンチエリア込みの幅
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    // マウス位置からコンテナの左端を引く
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    // ピッチの幅(rect.width)を100%としたときの割合
+    // ベンチエリア(右側)に行くと 100% を超える仕様にする
+    const x = (mouseX / rect.width) * 100;
+    const y = (mouseY / rect.height) * 100;
+
     setPlayers((prev) => prev.map((p) => (p.id === draggingId ? { ...p, x, y } : p)));
   };
 
@@ -199,49 +212,61 @@ const Board2D = ({ players, setPlayers }) => {
 
   return (
     <div style={{...styles.board2dContainer}} onMouseMove={handleMouseMove} onMouseUp={stopDragging} onMouseLeave={stopDragging}>
-      <div ref={boardRef} style={{ width: "70%", aspectRatio: "100/70", position: "relative", border: "2px solid #eee", marginRight: "25%", backgroundColor: "#2e8b57", boxSizing: "border-box" }}>
+      {/* ここが基準となるコンテナ (Pitch + Bench Area)
+         アスペクト比を維持しつつ、右側に30%分の余白(ベンチ)を確保するレイアウト 
+      */}
+      <div style={{ position: "relative", width: "95%", height: "90%", display: "flex", justifyContent:"center" }}>
         
-        {/* --- 2Dライン装飾 --- */}
-        {/* センターライン */}
-        <div style={{ position: "absolute", top: 0, left: "50%", width: "1px", height: "100%", background: "rgba(255,255,255,0.6)" }} />
-        {/* センターサークル */}
-        <div style={{ position: "absolute", top: "50%", left: "50%", width: "18%", paddingBottom: "18%", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "50%", transform: "translate(-50%, -50%)" }} />
-        {/* ゴールエリア */}
-        <div style={{ position: "absolute", top: "30%", left: 0, width: "8%", height: "40%", border: "1px solid rgba(255,255,255,0.6)", borderLeft: "none" }} />
-        <div style={{ position: "absolute", top: "30%", right: 0, width: "8%", height: "40%", border: "1px solid rgba(255,255,255,0.6)", borderRight: "none" }} />
+        {/* ピッチ部分 (ここを基準: 100%) */}
+        <div ref={boardRef} style={{ aspectRatio: "105/68", height: "100%", position: "relative", border: "2px solid #eee", backgroundColor: "#2e8b57", boxSizing: "border-box" }}>
+          
+          {/* ライン装飾 */}
+          <div style={{ position: "absolute", top: 0, left: "50%", width: "1px", height: "100%", background: "rgba(255,255,255,0.5)" }} />
+          <div style={{ position: "absolute", top: "50%", left: "50%", width: "18%", paddingBottom: "18%", border: "1px solid rgba(255,255,255,0.5)", borderRadius: "50%", transform: "translate(-50%, -50%)" }} />
+          {/* ペナルティエリア */}
+          <div style={{ position: "absolute", top: "20%", left: 0, width: "16%", height: "60%", border: "1px solid rgba(255,255,255,0.5)", borderLeft: "none" }} />
+          <div style={{ position: "absolute", top: "20%", right: 0, width: "16%", height: "60%", border: "1px solid rgba(255,255,255,0.5)", borderRight: "none" }} />
+          {/* ゴールエリア */}
+          <div style={{ position: "absolute", top: "36%", left: 0, width: "6%", height: "28%", border: "1px solid rgba(255,255,255,0.5)", borderLeft: "none" }} />
+          <div style={{ position: "absolute", top: "36%", right: 0, width: "6%", height: "28%", border: "1px solid rgba(255,255,255,0.5)", borderRight: "none" }} />
+          {/* ゴール枠 (線) */}
+          <div style={{ position: "absolute", top: "44%", left: "-2px", width: "0", height: "12%", borderLeft: "4px solid #fff" }} />
+          <div style={{ position: "absolute", top: "44%", right: "-2px", width: "0", height: "12%", borderRight: "4px solid #fff" }} />
 
-        {/* ベンチエリア */}
-        <div style={{ position: "absolute", right: "-35%", top: 0, width: "30%", height: "100%", borderLeft: "2px dashed #555", backgroundColor: "#222", boxSizing:"border-box" }}>
-          <div style={{ color: "#888", fontSize: "10px", textAlign: "center", padding:"5px" }}>BENCH</div>
+          {/* ベンチエリア (ピッチの右側に絶対配置でくっつける) */}
+          <div style={{ position: "absolute", left: "102%", top: 0, width: "30%", height: "100%", border: "2px dashed #444", backgroundColor: "#222", boxSizing:"border-box", borderRadius:"8px" }}>
+            <div style={{ color: "#666", fontSize: "10px", textAlign: "center", padding:"5px", borderBottom:"1px solid #444" }}>BENCH</div>
+          </div>
+
+          {/* プレイヤー & ボール */}
+          {players.map((p) => {
+            const isBall = p.grade === "ball";
+            const isDragging = draggingId === p.id;
+            return (
+              <div key={p.id} onMouseDown={() => setDraggingId(p.id)} style={{
+                  // ここが重要: ピッチ左上からの%指定
+                  left: `${p.x}%`, top: `${p.y}%`,
+                  position: "absolute",
+                  width: isBall ? "16px" : "26px", height: isBall ? "16px" : "26px",
+                  borderRadius: "50%",
+                  background: getGradeColor(p.grade),
+                  transform: "translate(-50%, -50%)", // アイコンの中心を座標に合わせる
+                  cursor: isDragging ? "grabbing" : "grab",
+                  border: isBall ? "2px solid #ccc" : "2px solid #fff",
+                  boxShadow: isDragging ? "0 5px 15px rgba(0,0,0,0.5)" : "0 2px 4px rgba(0,0,0,0.5)",
+                  zIndex: isDragging ? 100 : 10,
+                  display: "flex", justifyContent: "center", alignItems: "center",
+                  transition: isDragging ? "none" : "all 0.1s" // ドラッグ中は遅延なし、離すとシュッと戻る
+                }}>
+                {!isBall && (
+                  <span style={{ fontSize: "10px", fontWeight: "bold", textShadow:"0 1px 2px black", position:"absolute", bottom:"-18px", width:"80px", textAlign:"center", whiteSpace:"nowrap", color:"white", pointerEvents:"none" }}>
+                    {p.name}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
-
-        {/* --- プレイヤー & ボール --- */}
-        {players.map((p) => {
-          const isBall = p.grade === "ball";
-          const isDragging = draggingId === p.id;
-          return (
-            <div key={p.id} onMouseDown={() => setDraggingId(p.id)} style={{
-                left: `${p.x}%`, top: `${p.y}%`,
-                position: "absolute",
-                width: isBall ? "16px" : "24px", height: isBall ? "16px" : "24px",
-                borderRadius: "50%",
-                background: getGradeColor(p.grade),
-                transform: "translate(-50%, -50%)", // 中心を座標に合わせる
-                cursor: isDragging ? "grabbing" : "grab",
-                border: isBall ? "2px solid #ccc" : "2px solid #fff",
-                boxShadow: isDragging ? "0 5px 10px rgba(0,0,0,0.5)" : "0 2px 4px rgba(0,0,0,0.5)",
-                zIndex: isDragging ? 100 : 10,
-                display: "flex", justifyContent: "center", alignItems: "center",
-                userSelect: "none", transition: isDragging ? "none" : "box-shadow 0.1s"
-              }}>
-              {!isBall && (
-                <span style={{ fontSize: "9px", fontWeight: "bold", textShadow:"0 1px 2px black", position:"absolute", bottom:"-16px", width:"60px", textAlign:"center", whiteSpace:"nowrap", color:"white", pointerEvents:"none" }}>
-                  {p.name}
-                </span>
-              )}
-            </div>
-          );
-        })}
       </div>
     </div>
   );
@@ -283,7 +308,7 @@ export default function App() {
       <header style={styles.header}>
         <span style={{ fontWeight:'bold', marginRight:20 }}>⚽ Tactics 3D (Pro Ver.)</span>
         <span style={{ fontSize: "10px", color:"#aaa" }}>
-          {loading ? "Loading..." : "赤:1年 青:2年 黄:3年 桃:4年 水:5年 | 白:ボール"}
+          {loading ? "Loading..." : "1年:赤 2年:青 3年:黄 4年:桃 5年:水"}
         </span>
       </header>
       <div style={styles.main}>
