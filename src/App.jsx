@@ -1,28 +1,26 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Text, Line } from "@react-three/drei";
+import { OrbitControls, Text, Line, Sphere, Cylinder } from "@react-three/drei";
 import * as THREE from "three";
 
 // ==========================================
 // ⚙️ 設定エリア
 // ==========================================
 
-// ★ここにスプレッドシートの「CSV公開URL」を貼り付けてください！
+// ★スプレッドシートURL (CSV)
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRJ5qTo4Ee4Z7pfMgrnT1E0Y78tV4uOIL5iTY350b8bAMfB_Km3tZEClo9jt7d-LaqSSQwREGrA8ZVC/pub?output=csv";
 
-// 学年ごとのカラー設定 (要望対応版)
-// 1年:赤, 2年:青, 3年:黄 (基本サイクル)
-// 4年(1年の合同):ピンク, 5年(2年の合同):水色
+// カラー設定 (学年 + ボール)
 const getGradeColor = (grade) => {
+  if (grade === "ball") return "#ffffff"; // ボールは白
   const g = parseInt(grade);
   switch (g) {
     case 1: return "#f44336"; // 1年: 赤
     case 2: return "#2196f3"; // 2年: 青
     case 3: return "#ffc107"; // 3年: 黄
-    case 4: return "#e91e63"; // 4年: ピンク (赤の変種)
-    case 5: return "#03a9f4"; // 5年: 水色 (青の変種)
-    case 6: return "#ff9800"; // 6年(専攻科?): オレンジ (黄の変種)
-    default: return "#9e9e9e"; // その他: グレー
+    case 4: return "#e91e63"; // 4年: ピンク
+    case 5: return "#03a9f4"; // 5年: 水色
+    default: return "#9e9e9e"; // その他
   }
 };
 
@@ -34,7 +32,7 @@ const THEME = {
   bg: "#1d1d1d", panelBg: "#303030", headerBg: "#2b2b2b", text: "#cccccc", gridLine: "#3a3a3a",
 };
 
-// スタメンのデフォルト配置 (1-11人目)
+// スタメン初期位置
 const STARTER_POSITIONS = [
   { x: 10, y: 50 }, // GK
   { x: 30, y: 20 }, { x: 30, y: 80 }, { x: 30, y: 35 }, { x: 30, y: 65 }, // DF
@@ -42,148 +40,208 @@ const STARTER_POSITIONS = [
   { x: 70, y: 40 }, { x: 70, y: 60 }, { x: 80, y: 50 }  // FW
 ];
 
-// CSV解析 & 自動配置ロジック
+// CSV解析 & 配置ロジック
 const parseCSV = (text) => {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l);
-  const dataLines = lines.slice(1); // ヘッダー除去
+  const dataLines = lines.slice(1);
   
-  // まず全員のデータをオブジェクト化
-  const allPlayers = dataLines.map((line, index) => {
+  const players = dataLines.map((line, index) => {
     const cols = line.split(",");
     return {
-      id: index,
+      id: index, // 数値ID (0始まり)
       name: cols[0] || "未登録",
-      // 背番号(cols[1])は読み捨てるか、内部データとしてだけ保持
       grade: cols[2] || 1,
-      role: cols[3] || "PLY",
-      x: 0, y: 0 // 後で計算
+      x: 0, y: 0
     };
   });
 
-  // スタメンとベンチの境界
   const BENCH_START_INDEX = 11;
-  const benchCount = Math.max(0, allPlayers.length - BENCH_START_INDEX);
-
-  return allPlayers.map((p, i) => {
+  
+  // 配置計算
+  players.forEach((p, i) => {
     if (i < BENCH_START_INDEX) {
-      // --- スタメン配置 ---
+      // スタメン配置
       p.x = STARTER_POSITIONS[i]?.x || 50;
       p.y = STARTER_POSITIONS[i]?.y || 50;
     } else {
-      // --- ベンチ配置 (均等割り) ---
-      // ベンチエリア(Y:0-100)を人数+1等分して配置
+      // ベンチ配置 (4列グリッド)
       const benchIndex = i - BENCH_START_INDEX;
-      const split = 100 / (benchCount + 1);
+      const col = benchIndex % 4;
+      const row = Math.floor(benchIndex / 4);
       
-      p.x = 112; // ベンチエリアの横中心あたり
-      p.y = split * (benchIndex + 1);
+      p.x = 105 + col * 7; // 横間隔
+      p.y = 15 + row * 15;  // 縦間隔
     }
-    return p;
   });
+
+  // ボールを追加
+  players.push({
+    id: "ball", name: "", grade: "ball", x: 50, y: 50
+  });
+
+  return players;
 };
 
-// --- 3Dパーツ ---
-const Player3D = ({ position, scale = 1 }) => {
-  const x3d = (position.x - 50); 
-  const z3d = (position.y - 50) * 0.7;
-  const color = getGradeColor(position.grade);
-
+// --- 3Dパーツ: ゴール ---
+const Goal3D = ({ position, rotation }) => {
+  const material = new THREE.MeshStandardMaterial({ color: "white", roughness: 0.5 });
+  const postRadius = 0.3;
   return (
-    <group position={[x3d, 0, z3d]}>
-      {/* 台座 */}
-      <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[1.5 * scale, 1.5 * scale, 0.5, 32]} />
-        <meshStandardMaterial color={color} roughness={0.5} />
-      </mesh>
-      {/* 本体 */}
-      <mesh position={[0, 1.5, 0]} castShadow>
-        <cylinderGeometry args={[0.5 * scale, 0.5 * scale, 3, 16]} />
-        <meshStandardMaterial color={color} roughness={0.5} />
-      </mesh>
-      
-      {/* 背番号削除 → 名前のみ表示 */}
-      <Text position={[0, 4.5, 0]} fontSize={1.5} color="white" anchorX="center" anchorY="middle" outlineWidth={0.1} outlineColor="#000000">
-        {position.name}
-      </Text>
+    <group position={position} rotation={rotation}>
+      {/* ポストとバー */}
+      <mesh position={[0, 4, -7]} material={material}><cylinderGeometry args={[postRadius, postRadius, 14]} /></mesh> // 上
+      <mesh position={[-7, 2, 0]} material={material}><cylinderGeometry args={[postRadius, postRadius, 4]} /></mesh> // 左
+      <mesh position={[7, 2, 0]} material={material}><cylinderGeometry args={[postRadius, postRadius, 4]} /></mesh> // 右
+      {/* 後ろの支え (簡易) */}
+      <mesh position={[-7, 2, -3]} rotation={[Math.PI/4,0,0]} material={material}><cylinderGeometry args={[postRadius/2, postRadius/2, 5]} /></mesh>
+      <mesh position={[7, 2, -3]} rotation={[Math.PI/4,0,0]} material={material}><cylinderGeometry args={[postRadius/2, postRadius/2, 5]} /></mesh>
     </group>
   );
 };
 
-const FieldLines3D = () => {
-  const lineProps = { color: "white", lineWidth: 1, opacity: 0.4, transparent: true };
-  const borderPoints = [[-50, 0.05, -35], [50, 0.05, -35], [50, 0.05, 35], [-50, 0.05, 35], [-50, 0.05, -35]];
-  const centerLinePoints = [[0, 0.05, -35], [0, 0.05, 35]];
+// --- 3Dパーツ: プレイヤー/ボール ---
+const Object3D = ({ data, scale = 1 }) => {
+  const x3d = (data.x - 50); 
+  const z3d = (data.y - 50) * 0.7;
+  const color = getGradeColor(data.grade);
+  const isBall = data.grade === "ball";
 
   return (
-    <group>
-      <Line points={borderPoints} {...lineProps} />
-      <Line points={centerLinePoints} {...lineProps} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
-        <ringGeometry args={[9, 9.2, 64]} />
-        <meshBasicMaterial color="white" opacity={0.4} transparent side={THREE.DoubleSide} />
-      </mesh>
+    <group position={[x3d, isBall ? 0.75 : 0, z3d]}>
+      {isBall ? (
+        // ボール
+        <Sphere args={[0.75 * scale, 32, 32]} castShadow>
+          <meshStandardMaterial color="white" roughness={0.4} metalness={0.1} />
+        </Sphere>
+      ) : (
+        // プレイヤーコマ
+        <>
+          <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[1.5 * scale, 1.5 * scale, 0.5, 32]} />
+            <meshStandardMaterial color={color} roughness={0.5} />
+          </mesh>
+          <mesh position={[0, 1.5, 0]} castShadow>
+            <cylinderGeometry args={[0.5 * scale, 0.5 * scale, 3, 16]} />
+            <meshStandardMaterial color={color} roughness={0.5} />
+          </mesh>
+          <Text position={[0, 4.5, 0]} fontSize={1.5} color="white" anchorX="center" anchorY="middle" outlineWidth={0.1} outlineColor="#000000">
+            {data.name}
+          </Text>
+        </>
+      )}
     </group>
-  )
-}
+  );
+};
 
+// --- 3Dシーン ---
 const Scene3D = ({ players }) => {
+  // フィールドライン定義
+  const lineProps = { color: "white", lineWidth: 1, opacity: 0.6, transparent: true };
+  const fieldPoints = [[-50, 0.05, -35], [50, 0.05, -35], [50, 0.05, 35], [-50, 0.05, 35], [-50, 0.05, -35]];
+  const centerLine = [[0, 0.05, -35], [0, 0.05, 35]];
+  const goalAreaLeft = [[-50, 0.05, -10], [-44, 0.05, -10], [-44, 0.05, 10], [-50, 0.05, 10]];
+  const goalAreaRight = [[50, 0.05, -10], [44, 0.05, -10], [44, 0.05, 10], [50, 0.05, 10]];
+
   return (
     <div style={{ width: "100%", height: "100%" }}>
-      <Canvas shadows camera={{ position: [0, 60, 50], fov: 45 }}>
+      <Canvas shadows camera={{ position: [0, 70, 60], fov: 40 }}>
         <color attach="background" args={['#252525']} />
-        <gridHelper args={[200, 40, 0x444444, 0x333333]} position={[0, 0.01, 0]} />
         <ambientLight intensity={0.6} />
-        <directionalLight position={[10, 50, 10]} intensity={1.5} castShadow />
+        <directionalLight position={[20, 50, 20]} intensity={1.5} castShadow />
         
+        {/* 芝生 */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, 0, 0]}>
-          <planeGeometry args={[100, 70]} />
-          <meshStandardMaterial color="#2e8b57" roughness={0.9} opacity={0.8} />
+          <planeGeometry args={[120, 90]} />
+          <meshStandardMaterial color="#2e8b57" roughness={0.9} />
         </mesh>
         
-        <FieldLines3D />
-        {players.map((p) => ( <Player3D key={p.id} position={p} /> ))}
-        <OrbitControls makeDefault enableDamping dampingFactor={0.05} />
+        {/* ライン */}
+        <group position={[0, 0.06, 0]}>
+          <Line points={fieldPoints} {...lineProps} />
+          <Line points={centerLine} {...lineProps} />
+          <Line points={goalAreaLeft} {...lineProps} />
+          <Line points={goalAreaRight} {...lineProps} />
+          {/* センターサークル */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]}>
+            <ringGeometry args={[9, 9.3, 64]} />
+            <meshBasicMaterial color="white" opacity={0.6} transparent side={THREE.DoubleSide} />
+          </mesh>
+        </group>
+
+        {/* ゴール */}
+        <Goal3D position={[-50, 0, 0]} rotation={[0, Math.PI / 2, 0]} />
+        <Goal3D position={[50, 0, 0]} rotation={[0, -Math.PI / 2, 0]} />
+
+        {/* プレイヤー&ボール */}
+        {players.map((p) => ( <Object3D key={p.id} data={p} /> ))}
+        <OrbitControls makeDefault enableDamping dampingFactor={0.1} minPolarAngle={0} maxPolarAngle={Math.PI/2.2} />
       </Canvas>
     </div>
   );
 };
 
-// --- 2Dパーツ ---
+// --- 2Dボード ---
 const Board2D = ({ players, setPlayers }) => {
   const boardRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
 
+  // ドラッグ処理 (【重要】draggingId === null で判定するよう修正)
   const handleMouseMove = (e) => {
-    if (!draggingId || !boardRef.current) return;
+    if (draggingId === null || !boardRef.current) return;
     const rect = boardRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 120;
+    // マウス位置を相対座標(%)に変換
+    const x = ((e.clientX - rect.left) / rect.width) * 135; // ベンチエリア込みの幅
     const y = ((e.clientY - rect.top) / rect.height) * 100;
-    setPlayers((prev) => prev.map((p) => (p.id === draggingId ? { ...p, x: x, y: y } : p)));
+    setPlayers((prev) => prev.map((p) => (p.id === draggingId ? { ...p, x, y } : p)));
   };
 
+  const stopDragging = () => setDraggingId(null);
+
   return (
-    <div style={{...styles.board2dContainer}} onMouseMove={handleMouseMove} onMouseUp={() => setDraggingId(null)} onMouseLeave={() => setDraggingId(null)}>
-      <div ref={boardRef} style={{ width: "70%", aspectRatio: "100/70", position: "relative", border: "2px solid #555", marginRight: "20%" }}>
-        {/* コートライン */}
-        <div style={{ position: "absolute", top: "50%", width: "100%", borderTop: "1px solid #555" }} />
-        <div style={{ position: "absolute", top: "50%", left: "50%", width: "20%", paddingBottom: "20%", border: "1px solid #555", borderRadius: "50%", transform: "translate(-50%, -50%)" }} />
+    <div style={{...styles.board2dContainer}} onMouseMove={handleMouseMove} onMouseUp={stopDragging} onMouseLeave={stopDragging}>
+      <div ref={boardRef} style={{ width: "70%", aspectRatio: "100/70", position: "relative", border: "2px solid #eee", marginRight: "25%", backgroundColor: "#2e8b57", boxSizing: "border-box" }}>
         
+        {/* --- 2Dライン装飾 --- */}
+        {/* センターライン */}
+        <div style={{ position: "absolute", top: 0, left: "50%", width: "1px", height: "100%", background: "rgba(255,255,255,0.6)" }} />
+        {/* センターサークル */}
+        <div style={{ position: "absolute", top: "50%", left: "50%", width: "18%", paddingBottom: "18%", border: "1px solid rgba(255,255,255,0.6)", borderRadius: "50%", transform: "translate(-50%, -50%)" }} />
+        {/* ゴールエリア */}
+        <div style={{ position: "absolute", top: "30%", left: 0, width: "8%", height: "40%", border: "1px solid rgba(255,255,255,0.6)", borderLeft: "none" }} />
+        <div style={{ position: "absolute", top: "30%", right: 0, width: "8%", height: "40%", border: "1px solid rgba(255,255,255,0.6)", borderRight: "none" }} />
+
         {/* ベンチエリア */}
-        <div style={{ position: "absolute", right: "-25%", top: 0, width: "20%", height: "100%", border: "1px dashed #444", backgroundColor: "rgba(0,0,0,0.1)", display: "flex", justifyContent: "center" }}>
-          <span style={{ color: "#666", fontSize: "10px", marginTop: "5px" }}>BENCH</span>
+        <div style={{ position: "absolute", right: "-35%", top: 0, width: "30%", height: "100%", borderLeft: "2px dashed #555", backgroundColor: "#222", boxSizing:"border-box" }}>
+          <div style={{ color: "#888", fontSize: "10px", textAlign: "center", padding:"5px" }}>BENCH</div>
         </div>
 
-        {/* 選手 */}
-        {players.map((p) => (
-          <div key={p.id} onMouseDown={() => setDraggingId(p.id)} style={{
-              left: `${p.x}%`, top: `${p.y}%`, position: "absolute", width: "24px", height: "24px", borderRadius: "50%",
-              background: getGradeColor(p.grade), transform: "translate(-50%, -50%)", cursor: "grab", border: "2px solid #fff",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.5)", zIndex: 10, display: "flex", flexDirection:"column", justifyContent: "center", alignItems: "center", color: "white", userSelect: "none"
-            }}>
-            {/* 背番号削除 → 代わりに名前を表示 */}
-            <span style={{ fontSize: "9px", fontWeight: "bold", textShadow:"0 1px 2px black", width:"40px", textAlign:"center", whiteSpace:"nowrap" }}>{p.name}</span>
-          </div>
-        ))}
+        {/* --- プレイヤー & ボール --- */}
+        {players.map((p) => {
+          const isBall = p.grade === "ball";
+          const isDragging = draggingId === p.id;
+          return (
+            <div key={p.id} onMouseDown={() => setDraggingId(p.id)} style={{
+                left: `${p.x}%`, top: `${p.y}%`,
+                position: "absolute",
+                width: isBall ? "16px" : "24px", height: isBall ? "16px" : "24px",
+                borderRadius: "50%",
+                background: getGradeColor(p.grade),
+                transform: "translate(-50%, -50%)", // 中心を座標に合わせる
+                cursor: isDragging ? "grabbing" : "grab",
+                border: isBall ? "2px solid #ccc" : "2px solid #fff",
+                boxShadow: isDragging ? "0 5px 10px rgba(0,0,0,0.5)" : "0 2px 4px rgba(0,0,0,0.5)",
+                zIndex: isDragging ? 100 : 10,
+                display: "flex", justifyContent: "center", alignItems: "center",
+                userSelect: "none", transition: isDragging ? "none" : "box-shadow 0.1s"
+              }}>
+              {!isBall && (
+                <span style={{ fontSize: "9px", fontWeight: "bold", textShadow:"0 1px 2px black", position:"absolute", bottom:"-16px", width:"60px", textAlign:"center", whiteSpace:"nowrap", color:"white", pointerEvents:"none" }}>
+                  {p.name}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -199,53 +257,43 @@ export default function App() {
 
   useEffect(() => {
     fetch(SHEET_URL)
-      .then(response => response.text())
-      .then(text => {
-        const data = parseCSV(text);
-        if (data.length > 0) setPlayers(data);
-        setLoading(false);
+      .then(r => r.text()).then(t => {
+        setPlayers(parseCSV(t)); setLoading(false);
       })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
+      .catch(e => { console.error(e); setLoading(false); });
   }, []);
 
-  const startResizing = useCallback(() => { isResizing.current = true; }, []);
-  const stopResizing = useCallback(() => { isResizing.current = false; }, []);
-  const resize = useCallback((e) => {
+  const startResize = useCallback(() => { isResizing.current = true; }, []);
+  const stopResize = useCallback(() => { isResizing.current = false; }, []);
+  const doResize = useCallback((e) => {
     if (isResizing.current && containerRef.current) {
-      const newWidth = (e.clientX / containerRef.current.clientWidth) * 100;
-      if (newWidth > 10 && newWidth < 90) setLeftWidth(newWidth);
+      const newW = (e.clientX / containerRef.current.clientWidth) * 100;
+      if (newW > 20 && newW < 80) setLeftWidth(newW);
     }
   }, []);
 
   useEffect(() => {
-    window.addEventListener("mousemove", resize);
-    window.addEventListener("mouseup", stopResizing);
-    return () => {
-      window.removeEventListener("mousemove", resize);
-      window.removeEventListener("mouseup", stopResizing);
-    };
-  }, [resize, stopResizing]);
+    window.addEventListener("mousemove", doResize);
+    window.addEventListener("mouseup", stopResize);
+    return () => { window.removeEventListener("mousemove", doResize); window.removeEventListener("mouseup", stopResize); };
+  }, [doResize, stopResize]);
 
   return (
-    <div ref={containerRef} style={{...styles.container}}>
+    <div ref={containerRef} style={styles.container}>
       <header style={styles.header}>
-        <span style={{ fontWeight:'bold', marginRight:20 }}>⚽ Tactics 3D</span>
-        <span style={{ fontSize: "10px", color:"#888" }}>
-          {loading ? "Loading..." : "1年(赤) 2年(青) 3年(黄) 4年(桃) 5年(水)"}
+        <span style={{ fontWeight:'bold', marginRight:20 }}>⚽ Tactics 3D (Pro Ver.)</span>
+        <span style={{ fontSize: "10px", color:"#aaa" }}>
+          {loading ? "Loading..." : "赤:1年 青:2年 黄:3年 桃:4年 水:5年 | 白:ボール"}
         </span>
       </header>
-      
       <div style={styles.main}>
-        <div style={{ ...styles.panel, width: `${leftWidth}%`, flex: "none" }}>
-          <div style={styles.panelHeader}>Tactical Board (2D)</div>
+        <div style={{ ...styles.panel, width: `${leftWidth}%` }}>
+          <div style={styles.panelHeader}>2D Board</div>
           <Board2D players={players} setPlayers={setPlayers} />
         </div>
-        <div onMouseDown={startResizing} style={{ width: "5px", background: "#111", cursor: "col-resize", zIndex: 100, borderLeft: "1px solid #444", borderRight: "1px solid #444" }} />
+        <div onMouseDown={startResize} style={styles.resizer} />
         <div style={{ ...styles.panel, flex: 1 }}>
-          <div style={styles.panelHeader}>3D Simulation</div>
+          <div style={styles.panelHeader}>3D View</div>
           <Scene3D players={players} />
         </div>
       </div>
@@ -256,8 +304,9 @@ export default function App() {
 const styles = {
   container: { display: "flex", flexDirection: "column", width: "100vw", height: "100vh", background: THEME.bg, color: THEME.text, fontFamily: "'Segoe UI', sans-serif", overflow: "hidden" },
   header: { height: "30px", background: THEME.headerBg, borderBottom: "1px solid #111", display: "flex", alignItems: "center", padding: "0 10px", fontSize: "12px", userSelect: "none" },
-  main: { display: "flex", flex: 1, height: "calc(100vh - 30px)" },
-  panel: { background: THEME.panelBg, position: "relative", display: "flex", flexDirection: "column", overflow: "hidden" },
-  panelHeader: { padding: "5px 10px", background: "rgba(0,0,0,0.2)", fontSize: "11px", color: "#aaa", borderBottom: "1px solid #222", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  board2dContainer: { flex: 1, position: "relative", backgroundImage: `linear-gradient(${THEME.gridLine} 1px, transparent 1px), linear-gradient(90deg, ${THEME.gridLine} 1px, transparent 1px)`, backgroundSize: "20px 20px", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  main: { display: "flex", flex: 1, height: "calc(100vh - 30px)", position: "relative" },
+  panel: { background: THEME.panelBg, display: "flex", flexDirection: "column", overflow: "hidden", height: "100%" },
+  panelHeader: { padding: "5px 10px", background: "rgba(0,0,0,0.3)", fontSize: "11px", color: "#aaa", borderBottom: "1px solid #222" },
+  board2dContainer: { flex: 1, position: "relative", background: "#222", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  resizer: { width: "5px", background: "#1a1a1a", cursor: "col-resize", zIndex: 10, borderLeft: "1px solid #333", borderRight: "1px solid #333" }
 };
