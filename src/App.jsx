@@ -62,11 +62,12 @@ const parseCSV = (text) => {
       p.x = STARTER_POSITIONS[i]?.x || 50;
       p.y = STARTER_POSITIONS[i]?.y || 50;
     } else {
-      // ベンチ (4列グリッド)
+      // ベンチ配置 (4列)
+      // 枠線が消えるので、ピッチのすぐ右隣(103%あたり)から配置
       const benchIndex = i - BENCH_START_INDEX;
       const col = benchIndex % 4;
       const row = Math.floor(benchIndex / 4);
-      p.x = 105 + col * 7;
+      p.x = 103 + col * 7; 
       p.y = 15 + row * 15;
     }
   });
@@ -161,29 +162,30 @@ const Scene3D = ({ players }) => {
   );
 };
 
-// --- 2Dボード (ズーム機能追加) ---
+// --- 2Dボード ---
 const Board2D = ({ players, setPlayers, scale, setScale }) => {
   const boardRef = useRef(null);
   const [draggingId, setDraggingId] = useState(null);
 
-  // ズーム処理 (ホイール)
   const handleWheel = (e) => {
-    // 拡大縮小の速度
     const delta = -e.deltaY * 0.001; 
-    setScale(prev => Math.min(Math.max(0.5, prev + delta), 2.5)); // 0.5倍〜2.5倍に制限
+    setScale(prev => Math.min(Math.max(0.5, prev + delta), 2.5)); 
   };
 
   const handleMouseMove = (e) => {
     if (draggingId === null || !boardRef.current) return;
     
-    // スケール後の実際の見た目のサイズを取得
+    // 【重要】getBoundingClientRect()は、拡大縮小後の「現在の見た目のサイズ」を返します
     const rect = boardRef.current.getBoundingClientRect();
     
+    // マウスの位置と、要素の左上との差分
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    // rect.width は拡大後のピクセル幅なので、そのまま計算に使えば「見た目通り」の%になる
-    const x = (mouseX / rect.width) * 135; 
+    // 比率計算: rect.width が「見た目の100%」なので、これで割れば正確な%が出る
+    // 前回の 135倍 を廃止し、純粋な 100倍 に戻しました。
+    // これでマウスとアイコンの位置が 1:1 に同期します。
+    const x = (mouseX / rect.width) * 100; 
     const y = (mouseY / rect.height) * 100;
 
     setPlayers((prev) => prev.map((p) => (p.id === draggingId ? { ...p, x, y } : p)));
@@ -193,19 +195,20 @@ const Board2D = ({ players, setPlayers, scale, setScale }) => {
 
   return (
     <div 
-      style={{...styles.board2dContainer, overflow: "hidden" }} // はみ出し防止
+      style={{...styles.board2dContainer, overflow: "hidden" }} 
       onMouseMove={handleMouseMove} 
       onMouseUp={stopDragging} 
       onMouseLeave={stopDragging}
-      onWheel={handleWheel} // ホイールイベント
+      onWheel={handleWheel}
     >
       <div style={{ 
         width: "100%", height: "100%", 
         display: "flex", justifyContent:"center", alignItems:"center",
-        transform: `scale(${scale})`, // ズーム適用
+        transform: `scale(${scale})`, 
         transformOrigin: "center center",
         transition: "transform 0.1s ease-out"
       }}>
+        {/* ピッチ (ここが座標の基準 0-100%) */}
         <div ref={boardRef} style={{ width: "70%", aspectRatio: "105/68", position: "relative", border: "2px solid #eee", marginRight: "25%", backgroundColor: "#2e8b57", boxSizing: "border-box" }}>
           
           {/* ライン類 */}
@@ -218,9 +221,9 @@ const Board2D = ({ players, setPlayers, scale, setScale }) => {
           <div style={{ position: "absolute", top: "44%", left: "-2px", width: "0", height: "12%", borderLeft: "4px solid #fff" }} />
           <div style={{ position: "absolute", top: "44%", right: "-2px", width: "0", height: "12%", borderRight: "4px solid #fff" }} />
 
-          {/* ベンチ */}
-          <div style={{ position: "absolute", left: "102%", top: 0, width: "30%", height: "100%", border: "2px dashed #444", backgroundColor: "#222", boxSizing:"border-box", borderRadius:"8px" }}>
-            <div style={{ color: "#666", fontSize: "10px", textAlign: "center", padding:"5px", borderBottom:"1px solid #444" }}>BENCH</div>
+          {/* ベンチエリア (枠線・背景削除、文字のみ) */}
+          <div style={{ position: "absolute", left: "100%", top: 0, width: "30%", height: "100%" }}>
+            <div style={{ color: "#666", fontSize: "10px", textAlign: "center", padding:"5px" }}>BENCH</div>
           </div>
 
           {/* プレイヤー */}
@@ -261,7 +264,7 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [leftWidth, setLeftWidth] = useState(50);
-  const [zoomScale, setZoomScale] = useState(1.0); // ズーム倍率
+  const [zoomScale, setZoomScale] = useState(1.0);
   const containerRef = useRef(null);
   const isResizing = useRef(false);
 
@@ -295,7 +298,6 @@ export default function App() {
         <span style={{ fontSize: "10px", color:"#aaa", marginRight: "auto" }}>
           {loading ? "Loading..." : "赤:1年 青:2年 黄:3年 桃:4年 水:5年 | 白:ボール"}
         </span>
-        {/* リセットボタン */}
         <button onClick={() => setZoomScale(1.0)} style={styles.resetBtn}>Reset Zoom</button>
       </header>
       <div style={styles.main}>
